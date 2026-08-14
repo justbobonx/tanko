@@ -98,18 +98,13 @@ class Game {
           dy = Math.sin(ang);
           dist = 1;
         }
-        let nx = dx / dist;
-        let ny = dy / dist;
+        const onx = dx / dist;
+        const ony = dy / dist;
         const side =
           (a.x * 12.9898 + a.y * 78.233 + b.x * 4.1414 + b.y) % 1 < 0.5 ? 1 : -1;
         const tangentScale = 0.35;
-        nx += -ny * side * tangentScale;
-        ny += nx * side * tangentScale; // note: uses updated nx; keep simple
-        // recompute clean tangent from original normal
-        const onx = dx / dist;
-        const ony = dy / dist;
-        nx = onx - ony * side * tangentScale;
-        ny = ony + onx * side * tangentScale;
+        let nx = onx - ony * side * tangentScale;
+        let ny = ony + onx * side * tangentScale;
         const len = Math.hypot(nx, ny) || 1;
         nx /= len;
         ny /= len;
@@ -167,7 +162,7 @@ class Game {
       }
     }
 
-    // laser: only the closest tank on the beam dies
+    // laser: closest hit only, then beam ends (one kill per shot)
     for (const shooter of this.tanks) {
       if (shooter.dead || !shooter.laserActive) continue;
       const muzzle = shooter.getMuzzle();
@@ -192,7 +187,10 @@ class Game {
           closest = target;
         }
       }
-      if (closest) this._killTank(closest);
+      if (closest) {
+        this._killTank(closest);
+        shooter.beamTimer = 0; // end fire on first hit
+      }
     }
 
     this.tanks = this.tanks.filter((t) => !t.dead);
