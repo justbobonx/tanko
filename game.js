@@ -15,14 +15,10 @@ class Game {
     ];
     this.startCount = 60;
 
-    const w = Math.max(canvas.width, 1);
-    const h = Math.max(canvas.height, 1);
-    const margin = 80;
-
     for (let i = 0; i < this.startCount; i++) {
-      const x = margin + Math.random() * Math.max(1, w - margin * 2);
-      const y = margin + Math.random() * Math.max(1, h - margin * 2);
-      this.tanks.push(new Tank(x, y, this.colors[i % this.colors.length]));
+      const color = this.colors[i % this.colors.length];
+      // initial: clear field spawn (no overlap), not edge-only
+      this._placeTank(color, false);
     }
   }
 
@@ -35,7 +31,6 @@ class Game {
     return (hi - n) / (hi - lo);
   }
 
-  /** Random point along the map edge (inside margin). */
   _edgePoint(w, h) {
     const m = 40;
     const side = Math.floor(Math.random() * 4);
@@ -45,20 +40,28 @@ class Game {
     return { x: w - m, y: m + Math.random() * (h - m * 2) };
   }
 
-  _trySpawn(dt) {
-    const chance = this._spawnChance();
-    if (chance <= 0) return;
-    if (Math.random() >= chance * dt) return;
+  _fieldPoint(w, h) {
+    const m = 80;
+    return {
+      x: m + Math.random() * Math.max(1, w - m * 2),
+      y: m + Math.random() * Math.max(1, h - m * 2)
+    };
+  }
 
+  /**
+   * Place a tank if a clear spot is found.
+   * edgeOnly: respawns hug the border; initial uses full field.
+   * Returns the tank or null if skipped.
+   */
+  _placeTank(color, edgeOnly) {
     const w = this.canvas.width;
     const h = this.canvas.height;
-    const color = this.colors[Math.floor(Math.random() * this.colors.length)];
+    const attempts = edgeOnly ? 12 : 80;
 
-    // try a few edge spots; skip entirely if all overlap existing tanks
-    for (let attempt = 0; attempt < 12; attempt++) {
-      const p = this._edgePoint(w, h);
-      const candidate = new Tank(p.x, p.y, color);
-      const rect = candidate.getHitRect();
+    for (let i = 0; i < attempts; i++) {
+      const p = edgeOnly ? this._edgePoint(w, h) : this._fieldPoint(w, h);
+      const tank = new Tank(p.x, p.y, color);
+      const rect = tank.getHitRect();
       let clear = true;
       for (const other of this.tanks) {
         if (rectInRect(rect, other.getHitRect())) {
@@ -67,11 +70,20 @@ class Game {
         }
       }
       if (clear) {
-        this.tanks.push(candidate);
-        return;
+        this.tanks.push(tank);
+        return tank;
       }
     }
-    // no clear edge slot — skip spawn (do not kill existing)
+    return null;
+  }
+
+  _trySpawn(dt) {
+    const chance = this._spawnChance();
+    if (chance <= 0) return;
+    if (Math.random() >= chance * dt) return;
+
+    const color = this.colors[Math.floor(Math.random() * this.colors.length)];
+    this._placeTank(color, true); // edge only, skip if blocked
   }
 
   _killTank(tank) {
@@ -93,7 +105,6 @@ class Game {
       item.update(dt);
     }
 
-    // tank vs energy pod
     for (const tank of this.tanks) {
       if (tank.dead) continue;
       const tr = tank.getHitRect();
@@ -105,7 +116,6 @@ class Game {
       }
     }
 
-    // body-body hits → both explode + drop pods
     const n = this.tanks.length;
     for (let i = 0; i < n; i++) {
       const a = this.tanks[i];
@@ -120,7 +130,6 @@ class Game {
       }
     }
 
-    // laser hits
     for (const shooter of this.tanks) {
       if (shooter.dead || !shooter.laserActive) continue;
       const muzzle = shooter.getMuzzle();

@@ -1,6 +1,7 @@
 /**
- * Tank - drive, avoid, laser cannon (charge-based).
- * Must stop to fire. Hit box is body only (no turret).
+ * Tank - drive, avoid, laser.
+ * Energy: auto-recharges, spent to fire, gained from pods.
+ * Must stop while beam is active. Hit box = body only.
  */
 class Tank {
   constructor(x, y, color = '#4caf50') {
@@ -20,28 +21,38 @@ class Tank {
     this.aiTimer = 0;
     this.dead = false;
 
-    // laser: energy in "ms units"; need laserCost to fire
-    // natural recharge fills laserCost in laserChargeTime seconds (~5000ms)
-    this.laserDuration = 0.5;
-    this.laserTimer = 0;
-    this.laserCost = 5000;
-    this.laserChargeTime = 5.0;
-    this.laserCharge = Math.random() * this.laserCost * 0.5; // partial start
+    // --- energy / laser ---
+    this.energy = Math.random() * 2500; // partial start so not all fire together
+    this.fireCost = 5000;               // energy needed to fire
+    this.rechargeRate = 1000;           // energy per second (~5s to one shot)
+    this.beamDuration = 0.5;            // seconds beam stays on
+    this.beamTimer = 0;
     this.laserEndX = x;
     this.laserEndY = y;
   }
 
   get laserActive() {
-    return this.laserTimer > 0;
+    return this.beamTimer > 0;
   }
 
-  get laserReady() {
-    return this.laserCharge >= this.laserCost && this.laserTimer <= 0;
+  addEnergy(amount) {
+    this.energy += amount;
   }
 
-  /** Add energy in ms-equivalent units (from pods). */
-  addLaserEnergy(ms) {
-    this.laserCharge = Math.min(this.laserCost * 2, this.laserCharge + ms);
+  /** Spend energy and start beam if affordable. */
+  tryFire(worldW, worldH) {
+    if (this.beamTimer > 0 || this.energy < this.fireCost) return false;
+    this.energy -= this.fireCost;
+    this.beamTimer = this.beamDuration;
+    this._updateBeamEnd(worldW, worldH);
+    return true;
+  }
+
+  _updateBeamEnd(worldW, worldH) {
+    const muzzle = this.getMuzzle();
+    const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
+    this.laserEndX = edge.x;
+    this.laserEndY = edge.y;
   }
 
   getHitRect() {
@@ -64,28 +75,19 @@ class Tank {
   update(dt, worldW, worldH, tanks) {
     if (this.dead) return;
 
-    // --- laser beam active: stop ---
-    if (this.laserTimer > 0) {
-      this.laserTimer -= dt;
-      const muzzle = this.getMuzzle();
-      const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
-      this.laserEndX = edge.x;
-      this.laserEndY = edge.y;
+    // beam active: hold still, keep beam aimed
+    if (this.beamTimer > 0) {
+      this.beamTimer -= dt;
+      this._updateBeamEnd(worldW, worldH);
       return;
     }
 
-    // natural recharge (~full cost every laserChargeTime seconds)
-    const rate = this.laserCost / this.laserChargeTime;
-    this.laserCharge = Math.min(this.laserCost * 2, this.laserCharge + rate * dt);
+    // autocharge
+    this.energy += this.rechargeRate * dt;
 
-    if (this.laserReady && Math.random() < 0.4 * dt) {
-      this.laserCharge -= this.laserCost;
-      if (this.laserCharge < 0) this.laserCharge = 0;
-      this.laserTimer = this.laserDuration;
-      const muzzle = this.getMuzzle();
-      const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
-      this.laserEndX = edge.x;
-      this.laserEndY = edge.y;
+    // random fire when we can afford it
+    if (this.energy >= this.fireCost && Math.random() < 0.4 * dt) {
+      this.tryFire(worldW, worldH);
       return;
     }
 

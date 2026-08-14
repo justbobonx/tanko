@@ -20,13 +20,9 @@ class Item {
     };
   }
 
-  update(dt) {
-    // base: nothing
-  }
+  update(dt) {}
 
-  draw(ctx) {
-    // override
-  }
+  draw(ctx) {}
 
   /** Apply effect to tank; return true if consumed. */
   onPickup(tank) {
@@ -36,7 +32,7 @@ class Item {
 
 /**
  * Energy pod — diamond drop from a destroyed tank.
- * Same color as tank: +2000ms charge. Other color: +1000ms.
+ * Same color: +2000 energy. Other color: +1000.
  */
 class EnergyPod extends Item {
   constructor(x, y, color) {
@@ -47,8 +43,7 @@ class EnergyPod extends Item {
 
   onPickup(tank) {
     const same = tank.color.toLowerCase() === this.color.toLowerCase();
-    const boostMs = same ? 2000 : 1000;
-    tank.addLaserEnergy(boostMs);
+    tank.addEnergy(same ? 2000 : 1000);
     return true;
   }
 
