@@ -22,7 +22,7 @@ class Tank {
 
     this.energy = Math.random() * 2500;
     this.fireCost = 5000;
-    this.rechargeRate = 250;
+    this.rechargeRate = 500;
     this.beamDuration = 0.5;
     this.beamTimer = 0;
     this.laserEndX = x;
@@ -104,31 +104,54 @@ class Tank {
     return best ? { tank: best, dist: bestDist } : null;
   }
 
-  nearestPod(items) {
-    let best = null;
-    let bestDist = Infinity;
-    let bestSame = null;
-    let bestSameDist = Infinity;
+  /**
+   * Pick a pod that isn't hopelessly contested.
+   * Prefers same-color, skips pods where others are clearly closer.
+   */
+  pickPod(items, tanks) {
+    const candidates = [];
     for (const item of items) {
       if (item.dead) continue;
-      const d = Math.hypot(item.x - this.x, item.y - this.y);
-      if (d < bestDist) {
-        bestDist = d;
-        best = item;
+      const dist = Math.hypot(item.x - this.x, item.y - this.y);
+      let rivalsCloser = 0;
+      let closestRival = null;
+      let closestRivalDist = Infinity;
+      for (const other of tanks) {
+        if (other === this || other.dead) continue;
+        const od = Math.hypot(item.x - other.x, item.y - other.y);
+        if (od + 8 < dist) {
+          rivalsCloser++;
+          if (od < closestRivalDist) {
+            closestRivalDist = od;
+            closestRival = other;
+          }
+        }
       }
-      if (
-        item.color &&
-        item.color.toLowerCase() === this.color.toLowerCase() &&
-        d < bestSameDist
-      ) {
-        bestSameDist = d;
-        bestSame = item;
-      }
+      const same =
+        item.color && item.color.toLowerCase() === this.color.toLowerCase();
+      candidates.push({
+        item,
+        dist,
+        rivalsCloser,
+        closestRival,
+        same
+      });
     }
-    if (bestSame && bestSameDist < bestDist * 1.5 + 80) {
-      return { item: bestSame, dist: bestSameDist };
-    }
-    return best ? { item: best, dist: bestDist } : null;
+    if (!candidates.length) return null;
+
+    candidates.sort((a, b) => {
+      // score: lower is better for sorting pick
+      const score = (c) =>
+        c.dist +
+        c.rivalsCloser * 90 -
+        (c.same ? 40 : 0) +
+        (c.rivalsCloser >= 2 ? 120 : 0);
+      return score(a) - score(b);
+    });
+
+    const best = candidates[0];
+    // if still heavily contested, signal that
+    return best;
   }
 
   selectState(tanks, items, worldW, worldH) {
@@ -136,15 +159,14 @@ class Tank {
     const energyFrac = this.energy / this.fireCost;
     const sight = this.findSightTarget(tanks, worldW, worldH);
     const near = this.nearestEnemy(tanks);
-    const pod = this.nearestPod(items);
+    const podInfo = this.pickPod(items, tanks);
 
     const scores = {
-      wander: 8,
+      wander: 10,
       engage: 0,
       forage: 0
     };
 
-    // engage only scores well when we can actually shoot
     if (canFire) {
       if (sight) {
         scores.engage =
@@ -152,22 +174,38 @@ class Tank {
       } else if (near && near.dist < 280) {
         scores.engage = 28 + (1 - near.dist / 280) * 20;
       }
+
+      // rival beating us to a pod → shoot them instead of racing
+      if (podInfo && podInfo.closestRival && podInfo.rivalsCloser > 0) {
+        const rival = podInfo.closestRival;
+        const rd = Math.hypot(rival.x - this.x, rival.y - this.y);
+        if (rd < 320) {
+          scores.engage = Math.max(
+            scores.engage,
+            40 + (1 - rd / 320) * 25 + podInfo.rivalsCloser * 8
+          );
+        }
+      }
     } else if (sight || (near && near.dist < 200)) {
-      // see a fight we can't afford → suppress engage, nudge forage
       scores.engage = 2;
-      scores.forage += 18;
     }
 
-    if (pod) {
-      const need = energyFrac < 1 ? 1 - Math.min(1, energyFrac) : 0.12;
-      scores.forage += 12 + need * 40 + Math.max(0, 22 - pod.dist / 35);
-      if (!canFire) scores.forage += 15;
-      if (energyFrac < 0.5) scores.forage += 12;
-    } else if (!canFire) {
-      scores.forage += 6; // still prefer not camping engage
+    if (podInfo) {
+      const need = energyFrac < 1 ? 1 - Math.min(1, energyFrac) : 0.08;
+      let forage =
+        8 + need * 28 + Math.max(0, 16 - podInfo.dist / 45);
+
+      // contested pods are much less attractive
+      if (podInfo.rivalsCloser >= 1) forage *= 0.45;
+      if (podInfo.rivalsCloser >= 2) forage *= 0.5;
+      if (podInfo.same) forage += 6;
+      if (!canFire) forage += 10;
+      if (energyFrac < 0.4) forage += 8;
+
+      scores.forage = forage;
     }
 
-    if (scores[this.state] !== undefined) scores[this.state] += 12;
+    if (scores[this.state] !== undefined) scores[this.state] += 10;
 
     let best = 'wander';
     let bestScore = -Infinity;
@@ -180,9 +218,20 @@ class Tank {
 
     this.state = best;
     if (best === 'engage') {
-      this.aiTarget = sight || (near ? near.tank : null);
+      // prefer rival on our pod, then LOS, then nearest
+      if (
+        canFire &&
+        podInfo &&
+        podInfo.closestRival &&
+        !podInfo.closestRival.dead &&
+        scores.engage >= 40
+      ) {
+        this.aiTarget = podInfo.closestRival;
+      } else {
+        this.aiTarget = sight || (near ? near.tank : null);
+      }
     } else if (best === 'forage') {
-      this.aiTarget = pod ? pod.item : null;
+      this.aiTarget = podInfo ? podInfo.item : null;
     } else {
       this.aiTarget = null;
     }
@@ -283,7 +332,6 @@ class Tank {
         this.tryFire(worldW, worldH);
         return;
       }
-      // no crawl — keep moving while lining up
       speedScale = 0.85;
     } else if (this.state === 'forage' && this.aiTarget && !this.aiTarget.dead) {
       const p = this.aiTarget;

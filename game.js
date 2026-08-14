@@ -79,10 +79,6 @@ class Game {
     this._placeTank(color, true);
   }
 
-  /**
-   * Separate overlaps with a slight tangential bias so pairs glance past
-   * each other instead of locking head-on.
-   */
   _resolveBumps() {
     const n = this.tanks.length;
     for (let i = 0; i < n; i++) {
@@ -102,16 +98,18 @@ class Game {
           dy = Math.sin(ang);
           dist = 1;
         }
-        // normal from a → b
         let nx = dx / dist;
         let ny = dy / dist;
-        // stable-ish sideways offset from ids so each pair always shears the same way
-        const side = ((a.x * 12.9898 + a.y * 78.233 + b.x * 4.1414 + b.y) % 1) < 0.5 ? 1 : -1;
+        const side =
+          (a.x * 12.9898 + a.y * 78.233 + b.x * 4.1414 + b.y) % 1 < 0.5 ? 1 : -1;
         const tangentScale = 0.35;
-        const tx = -ny * side * tangentScale;
-        const ty = nx * side * tangentScale;
-        nx += tx;
-        ny += ty;
+        nx += -ny * side * tangentScale;
+        ny += nx * side * tangentScale; // note: uses updated nx; keep simple
+        // recompute clean tangent from original normal
+        const onx = dx / dist;
+        const ony = dy / dist;
+        nx = onx - ony * side * tangentScale;
+        ny = ony + onx * side * tangentScale;
         const len = Math.hypot(nx, ny) || 1;
         nx /= len;
         ny /= len;
@@ -124,7 +122,6 @@ class Game {
           a.y -= ny * push;
           b.x += nx * push;
           b.y += ny * push;
-          // nudge heading slightly so they drive past next frame
           a.steerTarget = Math.atan2(-ny, -nx);
           b.steerTarget = Math.atan2(ny, nx);
         }
@@ -170,13 +167,16 @@ class Game {
       }
     }
 
+    // laser: only the closest tank on the beam dies
     for (const shooter of this.tanks) {
       if (shooter.dead || !shooter.laserActive) continue;
       const muzzle = shooter.getMuzzle();
+      let closest = null;
+      let closestDist = Infinity;
       for (const target of this.tanks) {
         if (target === shooter || target.dead) continue;
         if (
-          lineInRect(
+          !lineInRect(
             muzzle.x,
             muzzle.y,
             shooter.laserEndX,
@@ -184,9 +184,15 @@ class Game {
             target.getHitRect()
           )
         ) {
-          this._killTank(target);
+          continue;
+        }
+        const d = Math.hypot(target.x - shooter.x, target.y - shooter.y);
+        if (d < closestDist) {
+          closestDist = d;
+          closest = target;
         }
       }
+      if (closest) this._killTank(closest);
     }
 
     this.tanks = this.tanks.filter((t) => !t.dead);
