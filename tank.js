@@ -20,18 +20,16 @@ class Tank {
     this.steerTarget = this.angle;
     this.dead = false;
 
-    // energy / laser
     this.energy = Math.random() * 2500;
     this.fireCost = 5000;
-    this.rechargeRate = 250; // 1/4 of previous 1000
+    this.rechargeRate = 250;
     this.beamDuration = 0.5;
     this.beamTimer = 0;
     this.laserEndX = x;
     this.laserEndY = y;
 
-    // AI
     this.state = 'wander';
-    this.aiTarget = null; // tank or item
+    this.aiTarget = null;
     this.aiPickTimer = 0;
   }
 
@@ -75,7 +73,6 @@ class Tank {
     };
   }
 
-  /** Ray along facing: first enemy body hit by lineInRect, else null. */
   findSightTarget(tanks, worldW, worldH) {
     const muzzle = this.getMuzzle();
     const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
@@ -93,7 +90,6 @@ class Tank {
     return best;
   }
 
-  /** Nearest live enemy (for turning into engage). */
   nearestEnemy(tanks) {
     let best = null;
     let bestDist = Infinity;
@@ -129,15 +125,14 @@ class Tank {
         bestSame = item;
       }
     }
-    // prefer same-color if reasonably close
     if (bestSame && bestSameDist < bestDist * 1.5 + 80) {
       return { item: bestSame, dist: bestSameDist };
     }
     return best ? { item: best, dist: bestDist } : null;
   }
 
-  /** Utility scores → pick state (with hysteresis). */
   selectState(tanks, items, worldW, worldH) {
+    const canFire = this.energy >= this.fireCost;
     const energyFrac = this.energy / this.fireCost;
     const sight = this.findSightTarget(tanks, worldW, worldH);
     const near = this.nearestEnemy(tanks);
@@ -149,24 +144,29 @@ class Tank {
       forage: 0
     };
 
-    // engage: someone in laser LOS, or close enemy we can turn onto
-    if (sight && energyFrac >= 0.35) {
-      scores.engage = 40 + Math.min(30, 400 / (Math.hypot(sight.x - this.x, sight.y - this.y) + 1));
-      if (this.energy >= this.fireCost) scores.engage += 25;
-    } else if (near && near.dist < 280 && energyFrac >= 0.5) {
-      scores.engage = 22 + (1 - near.dist / 280) * 18;
-      if (this.energy >= this.fireCost) scores.engage += 10;
+    // engage only scores well when we can actually shoot
+    if (canFire) {
+      if (sight) {
+        scores.engage =
+          55 + Math.min(30, 400 / (Math.hypot(sight.x - this.x, sight.y - this.y) + 1));
+      } else if (near && near.dist < 280) {
+        scores.engage = 28 + (1 - near.dist / 280) * 20;
+      }
+    } else if (sight || (near && near.dist < 200)) {
+      // see a fight we can't afford → suppress engage, nudge forage
+      scores.engage = 2;
+      scores.forage += 18;
     }
 
-    // forage: low energy or nothing to shoot
     if (pod) {
-      const need = energyFrac < 1 ? 1 - energyFrac : 0.15;
-      scores.forage = 12 + need * 35 + Math.max(0, 20 - pod.dist / 40);
-      if (energyFrac < 0.4) scores.forage += 20;
-      if (!sight && energyFrac < 1) scores.forage += 10;
+      const need = energyFrac < 1 ? 1 - Math.min(1, energyFrac) : 0.12;
+      scores.forage += 12 + need * 40 + Math.max(0, 22 - pod.dist / 35);
+      if (!canFire) scores.forage += 15;
+      if (energyFrac < 0.5) scores.forage += 12;
+    } else if (!canFire) {
+      scores.forage += 6; // still prefer not camping engage
     }
 
-    // hysteresis
     if (scores[this.state] !== undefined) scores[this.state] += 12;
 
     let best = 'wander';
@@ -194,7 +194,6 @@ class Tank {
   }
 
   _applySteerAndMove(dt, worldW, worldH, tanks, turningHard, speedScale) {
-    // walls
     const margin = 70;
     let pushX = 0;
     let pushY = 0;
@@ -211,7 +210,6 @@ class Tank {
       if (intoWall) this.driveDir = -1;
     }
 
-    // soft separation (still used while driving; hard bump is in Game)
     const avoidRadius = 70;
     let avoidX = 0;
     let avoidY = 0;
@@ -229,7 +227,6 @@ class Tank {
       }
     }
     if (neighbors > 0 && pushX === 0 && pushY === 0) {
-      // blend slightly away from crowd unless walls dominate
       const wx = Math.cos(this.steerTarget);
       const wy = Math.sin(this.steerTarget);
       this.steerTarget = Math.atan2(wy + avoidY * 0.8, wx + avoidX * 0.8);
@@ -277,27 +274,22 @@ class Tank {
       const t = this.aiTarget;
       turningHard = this._steerToward(t.x, t.y, true);
 
-      // if facing them and LOS, stop and fire
       let angErr = Math.atan2(t.y - this.y, t.x - this.x) - this.angle;
       while (angErr > Math.PI) angErr -= Math.PI * 2;
       while (angErr < -Math.PI) angErr += Math.PI * 2;
 
       const sight = this.findSightTarget(tanks, worldW, worldH);
-      if (Math.abs(angErr) < 0.12 && sight) {
-        if (this.energy >= this.fireCost) {
-          this.tryFire(worldW, worldH);
-          return;
-        }
-        speedScale = 0.15; // hold nearly still while waiting for energy
-      } else {
-        speedScale = 0.55; // close distance / turn in
+      if (Math.abs(angErr) < 0.12 && sight && this.energy >= this.fireCost) {
+        this.tryFire(worldW, worldH);
+        return;
       }
+      // no crawl — keep moving while lining up
+      speedScale = 0.85;
     } else if (this.state === 'forage' && this.aiTarget && !this.aiTarget.dead) {
       const p = this.aiTarget;
       turningHard = this._steerToward(p.x, p.y, true);
       speedScale = 1;
     } else {
-      // wander: occasional new heading
       if (!this._wanderT) this._wanderT = 0;
       this._wanderT -= dt;
       if (this._wanderT <= 0) {

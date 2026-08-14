@@ -1,5 +1,5 @@
 /**
- * Game - tanks, lasers, items, bump separation, explosions, respawn
+ * Game - tanks, lasers, items, angled bump separation, explosions, respawn
  */
 class Game {
   constructor(canvas) {
@@ -79,7 +79,10 @@ class Game {
     this._placeTank(color, true);
   }
 
-  /** Physical bump: separate overlapping bodies after movement. */
+  /**
+   * Separate overlaps with a slight tangential bias so pairs glance past
+   * each other instead of locking head-on.
+   */
   _resolveBumps() {
     const n = this.tanks.length;
     for (let i = 0; i < n; i++) {
@@ -99,17 +102,31 @@ class Game {
           dy = Math.sin(ang);
           dist = 1;
         }
-        const nx = dx / dist;
-        const ny = dy / dist;
-        // minimum separation ~ average body size
+        // normal from a → b
+        let nx = dx / dist;
+        let ny = dy / dist;
+        // stable-ish sideways offset from ids so each pair always shears the same way
+        const side = ((a.x * 12.9898 + a.y * 78.233 + b.x * 4.1414 + b.y) % 1) < 0.5 ? 1 : -1;
+        const tangentScale = 0.35;
+        const tx = -ny * side * tangentScale;
+        const ty = nx * side * tangentScale;
+        nx += tx;
+        ny += ty;
+        const len = Math.hypot(nx, ny) || 1;
+        nx /= len;
+        ny /= len;
+
         const minDist = (a.w + b.w) * 0.5;
         const overlap = minDist - dist;
         if (overlap > 0) {
-          const push = overlap * 0.5 + 0.5;
+          const push = overlap * 0.5 + 0.8;
           a.x -= nx * push;
           a.y -= ny * push;
           b.x += nx * push;
           b.y += ny * push;
+          // nudge heading slightly so they drive past next frame
+          a.steerTarget = Math.atan2(-ny, -nx);
+          b.steerTarget = Math.atan2(ny, nx);
         }
       }
     }
@@ -132,7 +149,6 @@ class Game {
 
     this._resolveBumps();
 
-    // clamp after bumps
     const pad = 14;
     for (const t of this.tanks) {
       t.x = Math.max(pad, Math.min(w - pad, t.x));
@@ -154,7 +170,6 @@ class Game {
       }
     }
 
-    // laser hits only (no body-explode)
     for (const shooter of this.tanks) {
       if (shooter.dead || !shooter.laserActive) continue;
       const muzzle = shooter.getMuzzle();
