@@ -13,9 +13,14 @@ class Game {
     ];
     const count = 10;
 
+    // Canvas must already be sized (see index.html) so width/height are real
+    const w = Math.max(canvas.width, 1);
+    const h = Math.max(canvas.height, 1);
+    const margin = 80;
+
     for (let i = 0; i < count; i++) {
-      const x = 80 + Math.random() * Math.max(40, canvas.width - 160);
-      const y = 80 + Math.random() * Math.max(40, canvas.height - 160);
+      const x = margin + Math.random() * Math.max(1, w - margin * 2);
+      const y = margin + Math.random() * Math.max(1, h - margin * 2);
       this.tanks.push(new Tank(x, y, colors[i % colors.length]));
     }
   }
@@ -33,7 +38,6 @@ class Game {
     const w = this.canvas.width;
     const h = this.canvas.height;
 
-    // dark green field
     ctx.fillStyle = '#0a1f0a';
     ctx.fillRect(0, 0, w, h);
 

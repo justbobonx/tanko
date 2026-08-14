@@ -14,7 +14,7 @@
     }
     canvas {
       display: block;
-      background: #1a1a1a;
+      background: #0a1f0a;
     }
   </style>
 </head>
@@ -24,19 +24,19 @@
   <script src="game.js"></script>
   <script>
     const canvas = document.getElementById('game');
-    const game = new Game(canvas);
 
     function resize() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
     window.addEventListener('resize', resize);
-    resize();
+    resize(); // size first so Game spawns across the full window
 
-    // Main loop via requestAnimationFrame (standard frame timing)
+    const game = new Game(canvas);
+
     let last = performance.now();
     function frame(now) {
-      const dt = Math.min((now - last) / 1000, 0.05); // seconds, capped
+      const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
       game.update(dt);
       game.draw();
