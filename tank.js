@@ -1,6 +1,6 @@
 /**
  * Tank - drive, avoid, laser cannon.
- * Hit box is body only (no turret).
+ * Must stop to fire. Hit box is body only (no turret).
  */
 class Tank {
   constructor(x, y, color = '#4caf50') {
@@ -22,8 +22,8 @@ class Tank {
 
     // laser cannon
     this.laserDuration = 0.5; // 500ms default
-    this.laserTimer = 0;      // remaining active time
-    this.laserCooldown = 1 + Math.random() * 3; // seconds until may fire again
+    this.laserTimer = 0;
+    this.laserCooldown = 1 + Math.random() * 3;
     this.laserEndX = x;
     this.laserEndY = y;
   }
@@ -32,7 +32,6 @@ class Tank {
     return this.laserTimer > 0;
   }
 
-  /** Axis-aligned body rect (ignores rotation and turret). */
   getHitRect() {
     return {
       x: this.x - this.w / 2,
@@ -42,7 +41,6 @@ class Tank {
     };
   }
 
-  /** Muzzle point at end of barrel. */
   getMuzzle() {
     const len = this.w / 2 + 8;
     return {
@@ -51,27 +49,42 @@ class Tank {
     };
   }
 
-  /**
-   * @param {number} dt
-   * @param {number} worldW
-   * @param {number} worldH
-   * @param {Tank[]} tanks
-   */
   update(dt, worldW, worldH, tanks) {
     if (this.dead) return;
+
+    // --- laser: must stop while firing ---
+    if (this.laserTimer > 0) {
+      this.laserTimer -= dt;
+      const muzzle = this.getMuzzle();
+      const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
+      this.laserEndX = edge.x;
+      this.laserEndY = edge.y;
+      return; // no move / turn while beam is on
+    }
+
+    this.laserCooldown -= dt;
+    if (this.laserCooldown <= 0) {
+      if (Math.random() < 0.35) {
+        this.laserTimer = this.laserDuration;
+        const muzzle = this.getMuzzle();
+        const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
+        this.laserEndX = edge.x;
+        this.laserEndY = edge.y;
+        return; // stop immediately on fire
+      }
+      this.laserCooldown = 1.5 + Math.random() * 3.5;
+    }
 
     this.driveDir = 1;
     let speedScale = 1;
     let turningHard = false;
 
-    // wander
     this.aiTimer -= dt;
     if (this.aiTimer <= 0) {
       this.aiTimer = 0.8 + Math.random() * 2.2;
       this.steerTarget = this.angle + (Math.random() - 0.5) * Math.PI * 1.2;
     }
 
-    // walls
     const margin = 70;
     let pushX = 0;
     let pushY = 0;
@@ -89,7 +102,6 @@ class Tank {
       if (intoWall) this.driveDir = -1;
     }
 
-    // tank avoidance
     const avoidRadius = 95;
     const minSafe = 42;
     let avoidX = 0;
@@ -133,7 +145,6 @@ class Tank {
       }
     }
 
-    // rotate
     let diff = this.steerTarget - this.angle;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
@@ -142,47 +153,24 @@ class Tank {
     if (Math.abs(diff) <= maxTurn) this.angle = this.steerTarget;
     else this.angle += Math.sign(diff) * maxTurn;
 
-    // move
     this.x += Math.cos(this.angle) * this.speed * speedScale * this.driveDir * dt;
     this.y += Math.sin(this.angle) * this.speed * speedScale * this.driveDir * dt;
 
     const pad = 14;
     this.x = Math.max(pad, Math.min(worldW - pad, this.x));
     this.y = Math.max(pad, Math.min(worldH - pad, this.y));
-
-    // --- laser ---
-    if (this.laserTimer > 0) {
-      this.laserTimer -= dt;
-      const muzzle = this.getMuzzle();
-      const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
-      this.laserEndX = edge.x;
-      this.laserEndY = edge.y;
-    } else {
-      this.laserCooldown -= dt;
-      if (this.laserCooldown <= 0) {
-        // random fire decision
-        if (Math.random() < 0.35) {
-          this.laserTimer = this.laserDuration;
-          const muzzle = this.getMuzzle();
-          const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
-          this.laserEndX = edge.x;
-          this.laserEndY = edge.y;
-        }
-        this.laserCooldown = 1.5 + Math.random() * 3.5;
-      }
-    }
   }
 
   draw(ctx) {
     if (this.dead) return;
 
-    // laser beam under / with tank
     if (this.laserActive) {
       const muzzle = this.getMuzzle();
       ctx.save();
       ctx.strokeStyle = this.color;
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.9;
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.globalAlpha = 0.95;
       ctx.beginPath();
       ctx.moveTo(muzzle.x, muzzle.y);
       ctx.lineTo(this.laserEndX, this.laserEndY);
