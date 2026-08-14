@@ -7,13 +7,23 @@ class Game {
     this.ctx = canvas.getContext('2d');
     this.tanks = [];
 
-    // start with one tank near center (will be adjusted after first resize)
-    this.tanks.push(new Tank(200, 200, '#4caf50'));
+    const colors = ['#4caf50', '#2196f3', '#ff9800', '#e91e63', '#9c27b0'];
+    const count = 5;
+
+    // spawn after a short delay isn't needed; positions use current canvas size
+    // (resize happens before first frame in index.html)
+    for (let i = 0; i < count; i++) {
+      const x = 80 + Math.random() * Math.max(40, canvas.width - 160);
+      const y = 80 + Math.random() * Math.max(40, canvas.height - 160);
+      this.tanks.push(new Tank(x, y, colors[i % colors.length]));
+    }
   }
 
   update(dt) {
+    const w = this.canvas.width;
+    const h = this.canvas.height;
     for (const tank of this.tanks) {
-      tank.update(dt);
+      tank.update(dt, w, h);
     }
   }
 
@@ -22,11 +32,9 @@ class Game {
     const w = this.canvas.width;
     const h = this.canvas.height;
 
-    // clear
     ctx.fillStyle = '#1a1a1a';
     ctx.fillRect(0, 0, w, h);
 
-    // draw tanks
     for (const tank of this.tanks) {
       tank.draw(ctx);
     }
