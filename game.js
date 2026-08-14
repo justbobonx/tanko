@@ -1,5 +1,5 @@
 /**
- * Game - tanks, lasers, items, collisions, explosions, respawn
+ * Game - tanks, lasers, items, bump separation, explosions, respawn
  */
 class Game {
   constructor(canvas) {
@@ -17,7 +17,6 @@ class Game {
 
     for (let i = 0; i < this.startCount; i++) {
       const color = this.colors[i % this.colors.length];
-      // initial: clear field spawn (no overlap), not edge-only
       this._placeTank(color, false);
     }
   }
@@ -48,11 +47,6 @@ class Game {
     };
   }
 
-  /**
-   * Place a tank if a clear spot is found.
-   * edgeOnly: respawns hug the border; initial uses full field.
-   * Returns the tank or null if skipped.
-   */
   _placeTank(color, edgeOnly) {
     const w = this.canvas.width;
     const h = this.canvas.height;
@@ -81,9 +75,44 @@ class Game {
     const chance = this._spawnChance();
     if (chance <= 0) return;
     if (Math.random() >= chance * dt) return;
-
     const color = this.colors[Math.floor(Math.random() * this.colors.length)];
-    this._placeTank(color, true); // edge only, skip if blocked
+    this._placeTank(color, true);
+  }
+
+  /** Physical bump: separate overlapping bodies after movement. */
+  _resolveBumps() {
+    const n = this.tanks.length;
+    for (let i = 0; i < n; i++) {
+      const a = this.tanks[i];
+      if (a.dead) continue;
+      for (let j = i + 1; j < n; j++) {
+        const b = this.tanks[j];
+        if (b.dead) continue;
+        if (!rectInRect(a.getHitRect(), b.getHitRect())) continue;
+
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let dist = Math.hypot(dx, dy);
+        if (dist < 1e-4) {
+          const ang = Math.random() * Math.PI * 2;
+          dx = Math.cos(ang);
+          dy = Math.sin(ang);
+          dist = 1;
+        }
+        const nx = dx / dist;
+        const ny = dy / dist;
+        // minimum separation ~ average body size
+        const minDist = (a.w + b.w) * 0.5;
+        const overlap = minDist - dist;
+        if (overlap > 0) {
+          const push = overlap * 0.5 + 0.5;
+          a.x -= nx * push;
+          a.y -= ny * push;
+          b.x += nx * push;
+          b.y += ny * push;
+        }
+      }
+    }
   }
 
   _killTank(tank) {
@@ -98,7 +127,16 @@ class Game {
     const h = this.canvas.height;
 
     for (const tank of this.tanks) {
-      tank.update(dt, w, h, this.tanks);
+      tank.update(dt, w, h, this.tanks, this.items);
+    }
+
+    this._resolveBumps();
+
+    // clamp after bumps
+    const pad = 14;
+    for (const t of this.tanks) {
+      t.x = Math.max(pad, Math.min(w - pad, t.x));
+      t.y = Math.max(pad, Math.min(h - pad, t.y));
     }
 
     for (const item of this.items) {
@@ -116,20 +154,7 @@ class Game {
       }
     }
 
-    const n = this.tanks.length;
-    for (let i = 0; i < n; i++) {
-      const a = this.tanks[i];
-      if (a.dead) continue;
-      for (let j = i + 1; j < n; j++) {
-        const b = this.tanks[j];
-        if (b.dead) continue;
-        if (rectInRect(a.getHitRect(), b.getHitRect())) {
-          this._killTank(a);
-          this._killTank(b);
-        }
-      }
-    }
-
+    // laser hits only (no body-explode)
     for (const shooter of this.tanks) {
       if (shooter.dead || !shooter.laserActive) continue;
       const muzzle = shooter.getMuzzle();
