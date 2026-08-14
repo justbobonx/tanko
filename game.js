@@ -12,7 +12,7 @@ class Game {
       '#4caf50', '#2196f3', '#ff9800', '#e91e63', '#9c27b0',
       '#00bcd4', '#ffeb3b', '#f44336', '#8bc34a', '#3f51b5'
     ];
-    const count = 10;
+    const count = 50;
 
     const w = Math.max(canvas.width, 1);
     const h = Math.max(canvas.height, 1);
@@ -24,25 +24,37 @@ class Game {
     }
   }
 
-  /** Try random positions until body rect does not overlap any existing tank. */
+  /**
+   * Random positions until body rects are separated by a clearance gap
+   * (not just non-overlapping — extra padding so they don't start almost touching).
+   */
   _spawnClear(w, h, margin, color) {
-    const maxTries = 80;
+    const maxTries = 200;
+    const clearance = 20; // extra space beyond body edges
+
     for (let t = 0; t < maxTries; t++) {
       const x = margin + Math.random() * Math.max(1, w - margin * 2);
       const y = margin + Math.random() * Math.max(1, h - margin * 2);
       const candidate = new Tank(x, y, color);
       const rect = candidate.getHitRect();
+      const padded = {
+        x: rect.x - clearance,
+        y: rect.y - clearance,
+        w: rect.w + clearance * 2,
+        h: rect.h + clearance * 2
+      };
+
       let ok = true;
       for (const other of this.tanks) {
-        if (rectInRect(rect, other.getHitRect())) {
+        if (rectInRect(padded, other.getHitRect())) {
           ok = false;
           break;
         }
       }
       if (ok) return candidate;
     }
-    // fallback: place anyway near center with jitter
-    return new Tank(w * 0.5 + (Math.random() - 0.5) * 40, h * 0.5 + (Math.random() - 0.5) * 40, color);
+    // give up on this slot rather than stacking in the center
+    return null;
   }
 
   update(dt) {

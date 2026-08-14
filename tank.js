@@ -10,11 +10,11 @@ class Tank {
     this.w = 28;
     this.h = 20;
     this.color = color;
-    this.fillColor = shadeColor(color, 0.3);
+    this.fillColor = shadeColor(color, 0.4);
     this.angle = Math.random() * Math.PI * 2;
 
     this.speed = 70;
-    this.turnSpeed = 1.8;
+    this.turnSpeed = 2.4;
     this.driveDir = 1;
 
     this.steerTarget = this.angle;
@@ -42,14 +42,18 @@ class Tank {
     if (this.dead) return;
 
     this.driveDir = 1;
+    let speedScale = 1;
+    let turningHard = false;
 
+    // wander (low priority)
     this.aiTimer -= dt;
     if (this.aiTimer <= 0) {
       this.aiTimer = 0.8 + Math.random() * 2.2;
       this.steerTarget = this.angle + (Math.random() - 0.5) * Math.PI * 1.2;
     }
 
-    const margin = 60;
+    // --- wall avoidance ---
+    const margin = 70;
     let pushX = 0;
     let pushY = 0;
     if (this.x < margin) pushX = 1;
@@ -60,51 +64,79 @@ class Tank {
     const nearWall = pushX !== 0 || pushY !== 0;
     if (nearWall) {
       this.steerTarget = Math.atan2(pushY, pushX);
+      turningHard = true;
       const intoWall =
-        Math.cos(this.angle) * -pushX + Math.sin(this.angle) * -pushY > 0.3;
+        Math.cos(this.angle) * -pushX + Math.sin(this.angle) * -pushY > 0.25;
       if (intoWall) this.driveDir = -1;
     }
 
-    const avoidRadius = 58;
+    // --- tank avoidance (strong separation) ---
+    // look farther ahead so they start turning before body rects meet
+    const avoidRadius = 95;
+    const minSafe = 42; // roughly diagonal of body + buffer
     let avoidX = 0;
     let avoidY = 0;
     let minDist = Infinity;
+    let neighbors = 0;
+
     for (const other of tanks) {
       if (other === this || other.dead) continue;
-      const dx = this.x - other.x;
-      const dy = this.y - other.y;
+
+      // bias away from where the other is heading a bit
+      const look = 12;
+      const ox = other.x + Math.cos(other.angle) * other.driveDir * look;
+      const oy = other.y + Math.sin(other.angle) * other.driveDir * look;
+
+      const dx = this.x - ox;
+      const dy = this.y - oy;
       const dist = Math.hypot(dx, dy);
       if (dist < avoidRadius && dist > 0.001) {
-        const strength = (avoidRadius - dist) / avoidRadius;
+        // stronger when closer (inverse-square-ish)
+        const t = (avoidRadius - dist) / avoidRadius;
+        const strength = t * t * 2.5;
         avoidX += (dx / dist) * strength;
         avoidY += (dy / dist) * strength;
+        neighbors++;
         if (dist < minDist) minDist = dist;
       }
     }
 
-    if (avoidX !== 0 || avoidY !== 0) {
+    if (neighbors > 0) {
+      turningHard = true;
       if (!nearWall) {
         this.steerTarget = Math.atan2(avoidY, avoidX);
       } else {
-        const wx = Math.cos(this.steerTarget);
-        const wy = Math.sin(this.steerTarget);
+        const wx = Math.cos(this.steerTarget) * 1.2;
+        const wy = Math.sin(this.steerTarget) * 1.2;
         this.steerTarget = Math.atan2(wy + avoidY, wx + avoidX);
       }
-      if (minDist < 34) this.driveDir = -1;
+
+      // slow down when closing in
+      if (minDist < avoidRadius) {
+        speedScale = Math.max(0.25, minDist / avoidRadius);
+      }
+
+      // reverse if almost body-to-body
+      if (minDist < minSafe) {
+        this.driveDir = -1;
+        speedScale = 1;
+      }
     }
 
+    // rotate toward steerTarget (faster when avoiding)
     let diff = this.steerTarget - this.angle;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
 
-    const maxTurn = this.turnSpeed * dt;
+    const turnRate = this.turnSpeed * (turningHard ? 1.6 : 1);
+    const maxTurn = turnRate * dt;
     if (Math.abs(diff) <= maxTurn) this.angle = this.steerTarget;
     else this.angle += Math.sign(diff) * maxTurn;
 
-    this.x += Math.cos(this.angle) * this.speed * this.driveDir * dt;
-    this.y += Math.sin(this.angle) * this.speed * this.driveDir * dt;
+    this.x += Math.cos(this.angle) * this.speed * speedScale * this.driveDir * dt;
+    this.y += Math.sin(this.angle) * this.speed * speedScale * this.driveDir * dt;
 
-    const pad = 12;
+    const pad = 14;
     this.x = Math.max(pad, Math.min(worldW - pad, this.x));
     this.y = Math.max(pad, Math.min(worldH - pad, this.y));
   }
@@ -116,7 +148,7 @@ class Tank {
     ctx.translate(this.x, this.y);
     ctx.rotate(this.angle);
 
-    // body: 30% fill, full-color outline
+    // body: 40% fill, full-color outline
     ctx.fillStyle = this.fillColor;
     ctx.fillRect(-this.w / 2, -this.h / 2, this.w, this.h);
     ctx.strokeStyle = this.color;
