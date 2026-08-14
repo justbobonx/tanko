@@ -1,6 +1,7 @@
 /**
  * Tank - drive, avoid, laser cannon.
- * Must stop to fire. Hit box is body only (no turret).
+ * Must stop to fire. Laser needs full charge (~5s refill).
+ * Hit box is body only (no turret).
  */
 class Tank {
   constructor(x, y, color = '#4caf50') {
@@ -21,15 +22,20 @@ class Tank {
     this.dead = false;
 
     // laser cannon
-    this.laserDuration = 0.5; // 500ms default
+    this.laserDuration = 0.5; // beam on for 500ms
     this.laserTimer = 0;
-    this.laserCooldown = 1 + Math.random() * 3;
+    this.laserChargeTime = 5.0; // 5000ms to fully recharge
+    this.laserCharge = Math.random(); // stagger initial readiness
     this.laserEndX = x;
     this.laserEndY = y;
   }
 
   get laserActive() {
     return this.laserTimer > 0;
+  }
+
+  get laserReady() {
+    return this.laserCharge >= 1 && this.laserTimer <= 0;
   }
 
   getHitRect() {
@@ -59,20 +65,22 @@ class Tank {
       const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
       this.laserEndX = edge.x;
       this.laserEndY = edge.y;
-      return; // no move / turn while beam is on
+      // charge stays empty until beam ends; refill starts after
+      return;
     }
 
-    this.laserCooldown -= dt;
-    if (this.laserCooldown <= 0) {
-      if (Math.random() < 0.35) {
-        this.laserTimer = this.laserDuration;
-        const muzzle = this.getMuzzle();
-        const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
-        this.laserEndX = edge.x;
-        this.laserEndY = edge.y;
-        return; // stop immediately on fire
-      }
-      this.laserCooldown = 1.5 + Math.random() * 3.5;
+    // recharge when not firing
+    if (this.laserCharge < 1) {
+      this.laserCharge = Math.min(1, this.laserCharge + dt / this.laserChargeTime);
+    } else if (Math.random() < 0.4 * dt) {
+      // fully charged: occasional decision to fire (~0.4 attempts/sec)
+      this.laserCharge = 0;
+      this.laserTimer = this.laserDuration;
+      const muzzle = this.getMuzzle();
+      const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
+      this.laserEndX = edge.x;
+      this.laserEndY = edge.y;
+      return;
     }
 
     this.driveDir = 1;
