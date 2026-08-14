@@ -1,7 +1,6 @@
 /**
- * Tank - drive, avoid, laser cannon.
- * Must stop to fire. Laser needs full charge (~5s refill).
- * Hit box is body only (no turret).
+ * Tank - drive, avoid, laser cannon (charge-based).
+ * Must stop to fire. Hit box is body only (no turret).
  */
 class Tank {
   constructor(x, y, color = '#4caf50') {
@@ -21,11 +20,13 @@ class Tank {
     this.aiTimer = 0;
     this.dead = false;
 
-    // laser cannon
-    this.laserDuration = 0.5; // beam on for 500ms
+    // laser: energy in "ms units"; need laserCost to fire
+    // natural recharge fills laserCost in laserChargeTime seconds (~5000ms)
+    this.laserDuration = 0.5;
     this.laserTimer = 0;
-    this.laserChargeTime = 5.0; // 5000ms to fully recharge
-    this.laserCharge = Math.random(); // stagger initial readiness
+    this.laserCost = 5000;
+    this.laserChargeTime = 5.0;
+    this.laserCharge = Math.random() * this.laserCost * 0.5; // partial start
     this.laserEndX = x;
     this.laserEndY = y;
   }
@@ -35,7 +36,12 @@ class Tank {
   }
 
   get laserReady() {
-    return this.laserCharge >= 1 && this.laserTimer <= 0;
+    return this.laserCharge >= this.laserCost && this.laserTimer <= 0;
+  }
+
+  /** Add energy in ms-equivalent units (from pods). */
+  addLaserEnergy(ms) {
+    this.laserCharge = Math.min(this.laserCost * 2, this.laserCharge + ms);
   }
 
   getHitRect() {
@@ -58,23 +64,23 @@ class Tank {
   update(dt, worldW, worldH, tanks) {
     if (this.dead) return;
 
-    // --- laser: must stop while firing ---
+    // --- laser beam active: stop ---
     if (this.laserTimer > 0) {
       this.laserTimer -= dt;
       const muzzle = this.getMuzzle();
       const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
       this.laserEndX = edge.x;
       this.laserEndY = edge.y;
-      // charge stays empty until beam ends; refill starts after
       return;
     }
 
-    // recharge when not firing
-    if (this.laserCharge < 1) {
-      this.laserCharge = Math.min(1, this.laserCharge + dt / this.laserChargeTime);
-    } else if (Math.random() < 0.4 * dt) {
-      // fully charged: occasional decision to fire (~0.4 attempts/sec)
-      this.laserCharge = 0;
+    // natural recharge (~full cost every laserChargeTime seconds)
+    const rate = this.laserCost / this.laserChargeTime;
+    this.laserCharge = Math.min(this.laserCost * 2, this.laserCharge + rate * dt);
+
+    if (this.laserReady && Math.random() < 0.4 * dt) {
+      this.laserCharge -= this.laserCost;
+      if (this.laserCharge < 0) this.laserCharge = 0;
       this.laserTimer = this.laserDuration;
       const muzzle = this.getMuzzle();
       const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
