@@ -394,7 +394,7 @@ class Tank {
     ctx.fillRect(0, -3, this.w / 2 + 8, 6);
     ctx.strokeStyle = this.color;
     ctx.lineWidth = 1;
-    ctx.strokeRect(0, -3, this.w / 2 + 8, this.h ? 6 : 6);
+    ctx.strokeRect(0, -3, this.w / 2 + 8, 6);
 
     ctx.restore();
   }
