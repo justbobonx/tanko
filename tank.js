@@ -1,8 +1,9 @@
 /**
- * Tank - drive, scored AI, laser energy.
- * Shot resolves in one frame (pendingShot + LaserBeam visual).
- * Tank still locks movement for fireDuration (sim of stopping to fire).
- * Sight/laser range = half canvas width.
+ * Tank - drive, scored AI, laser/bullet energy.
+ * Laser: one-frame resolve via pendingShot + LaserBeam visual.
+ * Bullets: independent flying objects (pendingBullets handed to Game).
+ * Tank locks movement for fireDuration while firing.
+ * Sight range still half canvas width (laser-oriented).
  */
 class Tank {
   constructor(x, y, color = '#4caf50') {
@@ -21,7 +22,9 @@ class Tank {
     this.steerTarget = this.angle;
     this.dead = false;
 
+    // laser cost kept as fireCost so selectState is unchanged
     this.fireCost = 5000;
+    this.bulletCost = 250;
     this.rechargeRate = 500;
     this.fireDuration = 0.5;
     this.fireLock = 0;
@@ -29,6 +32,7 @@ class Tank {
     this.energy = this.fireCost;
 
     this.pendingShot = null;
+    this.pendingBullets = null;
 
     this.state = 'wander';
     this.aiTarget = null;
@@ -39,8 +43,11 @@ class Tank {
     this.energy += amount;
   }
 
-  tryFire() {
-    if (this.fireLock > 0 || this.pendingShot || this.energy < this.fireCost) {
+  /**
+   * Instant laser (existing behaviour). Sets pendingShot for Game to resolve.
+   */
+  shootLaser() {
+    if (this.fireLock > 0 || this.pendingShot || this.pendingBullets || this.energy < this.fireCost) {
       return false;
     }
     this.energy -= this.fireCost;
@@ -52,6 +59,29 @@ class Tank {
       angle: this.angle,
       color: this.color
     };
+    return true;
+  }
+
+  /**
+   * Burst of 3–5 bullets. Each costs bulletCost. Handed to Game via pendingBullets.
+   */
+  shootBullet() {
+    const count = 3 + Math.floor(Math.random() * 3); // 3–5
+    const totalCost = this.bulletCost * count;
+    if (this.fireLock > 0 || this.pendingShot || this.pendingBullets || this.energy < totalCost) {
+      return false;
+    }
+    this.energy -= totalCost;
+    this.fireLock = this.fireDuration;
+    const muzzle = this.getMuzzle();
+    this.pendingBullets = [];
+    for (let i = 0; i < count; i++) {
+      // tiny random spread so the burst is not a single pixel stack
+      const spread = (Math.random() - 0.5) * 0.1;
+      this.pendingBullets.push(
+        new Bullet(muzzle.x, muzzle.y, this.angle + spread, this.color, this)
+      );
+    }
     return true;
   }
 
@@ -326,7 +356,8 @@ class Tank {
 
       const sight = this.findSightTarget(tanks, worldW, worldH);
       if (Math.abs(angErr) < 0.12 && sight && this.energy >= this.fireCost) {
-        this.tryFire();
+        // temporarily using bullets instead of laser
+        this.shootBullet();
         return;
       }
       speedScale = 0.85;
@@ -363,7 +394,7 @@ class Tank {
     ctx.fillRect(0, -3, this.w / 2 + 8, 6);
     ctx.strokeStyle = this.color;
     ctx.lineWidth = 1;
-    ctx.strokeRect(0, -3, this.w / 2 + 8, 6);
+    ctx.strokeRect(0, -3, this.w / 2 + 8, this.h ? 6 : 6);
 
     ctx.restore();
   }
