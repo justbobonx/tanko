@@ -2,6 +2,7 @@
  * Tank - drive, scored AI, laser energy.
  * Shot resolves in one frame (pendingShot + LaserBeam visual).
  * Tank still locks movement for fireDuration (sim of stopping to fire).
+ * Sight/laser range = half canvas width.
  */
 class Tank {
   constructor(x, y, color = '#4caf50') {
@@ -23,7 +24,7 @@ class Tank {
     this.energy = Math.random() * 2500;
     this.fireCost = 5000;
     this.rechargeRate = 500;
-    this.fireDuration = 0.5; // hold still this long after firing
+    this.fireDuration = 0.5;
     this.fireLock = 0;
 
     this.pendingShot = null;
@@ -70,14 +71,22 @@ class Tank {
     };
   }
 
+  /** Facing ray of limited range; nearest tank on that segment. */
   findSightTarget(tanks, worldW, worldH) {
     const muzzle = this.getMuzzle();
-    const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
+    const end = rayEnd(
+      muzzle.x,
+      muzzle.y,
+      this.angle,
+      worldW,
+      worldH,
+      laserRange(worldW)
+    );
     let best = null;
     let bestDist = Infinity;
     for (const other of tanks) {
       if (other === this || other.dead) continue;
-      if (!lineInRect(muzzle.x, muzzle.y, edge.x, edge.y, other.getHitRect())) continue;
+      if (!lineInRect(muzzle.x, muzzle.y, end.x, end.y, other.getHitRect())) continue;
       const d = Math.hypot(other.x - this.x, other.y - this.y);
       if (d < bestDist) {
         bestDist = d;
@@ -150,6 +159,7 @@ class Tank {
     const sight = this.findSightTarget(tanks, worldW, worldH);
     const near = this.nearestEnemy(tanks);
     const podInfo = this.pickPod(items, tanks);
+    const range = laserRange(worldW);
 
     const scores = {
       wander: 10,
@@ -161,17 +171,17 @@ class Tank {
       if (sight) {
         scores.engage =
           55 + Math.min(30, 400 / (Math.hypot(sight.x - this.x, sight.y - this.y) + 1));
-      } else if (near && near.dist < 280) {
-        scores.engage = 28 + (1 - near.dist / 280) * 20;
+      } else if (near && near.dist < Math.min(280, range)) {
+        scores.engage = 28 + (1 - near.dist / Math.min(280, range)) * 20;
       }
 
       if (podInfo && podInfo.closestRival && podInfo.rivalsCloser > 0) {
         const rival = podInfo.closestRival;
         const rd = Math.hypot(rival.x - this.x, rival.y - this.y);
-        if (rd < 320) {
+        if (rd < Math.min(320, range)) {
           scores.engage = Math.max(
             scores.engage,
-            40 + (1 - rd / 320) * 25 + podInfo.rivalsCloser * 8
+            40 + (1 - rd / Math.min(320, range)) * 25 + podInfo.rivalsCloser * 8
           );
         }
       }
@@ -288,7 +298,6 @@ class Tank {
     if (this.dead) return;
     if (!items) items = [];
 
-    // locked in place while "firing" (beam visual is separate)
     if (this.fireLock > 0) {
       this.fireLock -= dt;
       this.energy += this.rechargeRate * dt;
@@ -318,7 +327,7 @@ class Tank {
       const sight = this.findSightTarget(tanks, worldW, worldH);
       if (Math.abs(angErr) < 0.12 && sight && this.energy >= this.fireCost) {
         this.tryFire();
-        return; // begin fire lock this frame
+        return;
       }
       speedScale = 0.85;
     } else if (this.state === 'forage' && this.aiTarget && !this.aiTarget.dead) {

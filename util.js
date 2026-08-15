@@ -2,10 +2,6 @@
  * Shared helpers
  */
 
-/**
- * Axis-aligned rects: { x, y, w, h } (x,y = top-left).
- * Returns true if the two rects overlap (share any area).
- */
 function rectInRect(a, b) {
   return (
     a.x < b.x + b.w &&
@@ -17,7 +13,6 @@ function rectInRect(a, b) {
 
 /**
  * Line segment (x1,y1)-(x2,y2) vs axis-aligned rect { x, y, w, h }.
- * True if the segment intersects the rect (including endpoints inside).
  */
 function lineInRect(x1, y1, x2, y2, rect) {
   const rx = rect.x;
@@ -25,12 +20,10 @@ function lineInRect(x1, y1, x2, y2, rect) {
   const rw = rect.w;
   const rh = rect.h;
 
-  // either endpoint inside
   const inside = (px, py) =>
     px >= rx && px <= rx + rw && py >= ry && py <= ry + rh;
   if (inside(x1, y1) || inside(x2, y2)) return true;
 
-  // Liang-Barsky style clip: does segment cross any edge?
   const intersects = (ax, ay, bx, by, cx, cy, dx, dy) => {
     const den = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
     if (Math.abs(den) < 1e-10) return false;
@@ -42,14 +35,13 @@ function lineInRect(x1, y1, x2, y2, rect) {
   const x3 = rx + rw;
   const y3 = ry + rh;
   return (
-    intersects(x1, y1, x2, y2, rx, ry, x3, ry) || // top
-    intersects(x1, y1, x2, y2, x3, ry, x3, y3) || // right
-    intersects(x1, y1, x2, y2, x3, y3, rx, y3) || // bottom
-    intersects(x1, y1, x2, y2, rx, y3, rx, ry)    // left
+    intersects(x1, y1, x2, y2, rx, ry, x3, ry) ||
+    intersects(x1, y1, x2, y2, x3, ry, x3, y3) ||
+    intersects(x1, y1, x2, y2, x3, y3, rx, y3) ||
+    intersects(x1, y1, x2, y2, rx, y3, rx, ry)
   );
 }
 
-/** Darken a #rrggbb color by factor (0–1). */
 function shadeColor(hex, factor) {
   const n = parseInt(String(hex).replace('#', ''), 16);
   const r = Math.round(((n >> 16) & 255) * factor);
@@ -58,11 +50,18 @@ function shadeColor(hex, factor) {
   return `rgb(${r},${g},${b})`;
 }
 
-/** Extend a ray from (x,y) along angle until it hits the canvas edge. */
-function rayToCanvasEdge(x, y, angle, worldW, worldH) {
+/** Default laser / sight range: half canvas width. */
+function laserRange(worldW) {
+  return worldW * 0.5;
+}
+
+/**
+ * Ray from (x,y) along angle, capped by maxLen and canvas edges.
+ */
+function rayEnd(x, y, angle, worldW, worldH, maxLen) {
   const dx = Math.cos(angle);
   const dy = Math.sin(angle);
-  let t = Infinity;
+  let t = maxLen;
 
   if (dx > 1e-8) t = Math.min(t, (worldW - x) / dx);
   else if (dx < -1e-8) t = Math.min(t, (0 - x) / dx);
@@ -72,4 +71,9 @@ function rayToCanvasEdge(x, y, angle, worldW, worldH) {
 
   if (!isFinite(t) || t < 0) t = 0;
   return { x: x + dx * t, y: y + dy * t };
+}
+
+/** @deprecated use rayEnd with laserRange */
+function rayToCanvasEdge(x, y, angle, worldW, worldH) {
+  return rayEnd(x, y, angle, worldW, worldH, 1e9);
 }

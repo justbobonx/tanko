@@ -132,19 +132,19 @@ class Game {
     this.items.push(new EnergyPod(tank.x, tank.y, tank.color));
   }
 
-  /** Resolve one-shot lasers: closest hit, spawn lasting beam visual. */
   _resolveShots(w, h) {
+    const range = laserRange(w);
     for (const shooter of this.tanks) {
       if (shooter.dead || !shooter.pendingShot) continue;
       const shot = shooter.pendingShot;
       shooter.pendingShot = null;
 
-      const edge = rayToCanvasEdge(shot.x, shot.y, shot.angle, w, h);
+      const end = rayEnd(shot.x, shot.y, shot.angle, w, h, range);
       let closest = null;
       let closestDist = Infinity;
       for (const target of this.tanks) {
         if (target === shooter || target.dead) continue;
-        if (!lineInRect(shot.x, shot.y, edge.x, edge.y, target.getHitRect())) {
+        if (!lineInRect(shot.x, shot.y, end.x, end.y, target.getHitRect())) {
           continue;
         }
         const d = Math.hypot(target.x - shot.x, target.y - shot.y);
@@ -154,8 +154,8 @@ class Game {
         }
       }
 
-      let x2 = edge.x;
-      let y2 = edge.y;
+      let x2 = end.x;
+      let y2 = end.y;
       if (closest) {
         x2 = closest.x;
         y2 = closest.y;
