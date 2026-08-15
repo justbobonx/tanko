@@ -21,11 +21,12 @@ class Tank {
     this.steerTarget = this.angle;
     this.dead = false;
 
-    this.energy = Math.random() * 2500;
     this.fireCost = 5000;
     this.rechargeRate = 500;
     this.fireDuration = 0.5;
     this.fireLock = 0;
+    // full energy on spawn so they can shoot immediately
+    this.energy = this.fireCost;
 
     this.pendingShot = null;
 
@@ -71,7 +72,6 @@ class Tank {
     };
   }
 
-  /** Facing ray of limited range; nearest tank on that segment. */
   findSightTarget(tanks, worldW, worldH) {
     const muzzle = this.getMuzzle();
     const end = rayEnd(
