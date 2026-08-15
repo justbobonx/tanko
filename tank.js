@@ -1,6 +1,7 @@
 /**
  * Tank - drive, scored AI, laser energy.
- * Fire is instant (pendingShot); beam visual is a separate LaserBeam effect.
+ * Shot resolves in one frame (pendingShot + LaserBeam visual).
+ * Tank still locks movement for fireDuration (sim of stopping to fire).
  */
 class Tank {
   constructor(x, y, color = '#4caf50') {
@@ -22,8 +23,9 @@ class Tank {
     this.energy = Math.random() * 2500;
     this.fireCost = 5000;
     this.rechargeRate = 500;
+    this.fireDuration = 0.5; // hold still this long after firing
+    this.fireLock = 0;
 
-    // set by tryFire; consumed by Game same frame
     this.pendingShot = null;
 
     this.state = 'wander';
@@ -35,10 +37,12 @@ class Tank {
     this.energy += amount;
   }
 
-  /** Spend energy and request a shot; Game resolves hit + spawns beam. */
   tryFire() {
-    if (this.pendingShot || this.energy < this.fireCost) return false;
+    if (this.fireLock > 0 || this.pendingShot || this.energy < this.fireCost) {
+      return false;
+    }
     this.energy -= this.fireCost;
+    this.fireLock = this.fireDuration;
     const muzzle = this.getMuzzle();
     this.pendingShot = {
       x: muzzle.x,
@@ -284,6 +288,13 @@ class Tank {
     if (this.dead) return;
     if (!items) items = [];
 
+    // locked in place while "firing" (beam visual is separate)
+    if (this.fireLock > 0) {
+      this.fireLock -= dt;
+      this.energy += this.rechargeRate * dt;
+      return;
+    }
+
     this.energy += this.rechargeRate * dt;
 
     this.aiPickTimer -= dt;
@@ -307,6 +318,7 @@ class Tank {
       const sight = this.findSightTarget(tanks, worldW, worldH);
       if (Math.abs(angErr) < 0.12 && sight && this.energy >= this.fireCost) {
         this.tryFire();
+        return; // begin fire lock this frame
       }
       speedScale = 0.85;
     } else if (this.state === 'forage' && this.aiTarget && !this.aiTarget.dead) {
