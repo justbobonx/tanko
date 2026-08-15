@@ -1,5 +1,5 @@
 /**
- * Game - tanks, lasers, items, angled bump separation, explosions, respawn
+ * Game - tanks, laser effects, items, bumps, explosions, respawn
  */
 class Game {
   constructor(canvas) {
@@ -7,6 +7,7 @@ class Game {
     this.ctx = canvas.getContext('2d');
     this.tanks = [];
     this.explosions = [];
+    this.beams = [];
     this.items = [];
 
     this.colors = [
@@ -131,6 +132,40 @@ class Game {
     this.items.push(new EnergyPod(tank.x, tank.y, tank.color));
   }
 
+  /** Resolve one-shot lasers: closest hit, spawn lasting beam visual. */
+  _resolveShots(w, h) {
+    for (const shooter of this.tanks) {
+      if (shooter.dead || !shooter.pendingShot) continue;
+      const shot = shooter.pendingShot;
+      shooter.pendingShot = null;
+
+      const edge = rayToCanvasEdge(shot.x, shot.y, shot.angle, w, h);
+      let closest = null;
+      let closestDist = Infinity;
+      for (const target of this.tanks) {
+        if (target === shooter || target.dead) continue;
+        if (!lineInRect(shot.x, shot.y, edge.x, edge.y, target.getHitRect())) {
+          continue;
+        }
+        const d = Math.hypot(target.x - shot.x, target.y - shot.y);
+        if (d < closestDist) {
+          closestDist = d;
+          closest = target;
+        }
+      }
+
+      let x2 = edge.x;
+      let y2 = edge.y;
+      if (closest) {
+        x2 = closest.x;
+        y2 = closest.y;
+        this._killTank(closest);
+      }
+
+      this.beams.push(new LaserBeam(shot.x, shot.y, x2, y2, shot.color, 0.5));
+    }
+  }
+
   update(dt) {
     const w = this.canvas.width;
     const h = this.canvas.height;
@@ -138,6 +173,8 @@ class Game {
     for (const tank of this.tanks) {
       tank.update(dt, w, h, this.tanks, this.items);
     }
+
+    this._resolveShots(w, h);
 
     this._resolveBumps();
 
@@ -162,41 +199,15 @@ class Game {
       }
     }
 
-    // laser: closest hit only, then beam ends (one kill per shot)
-    for (const shooter of this.tanks) {
-      if (shooter.dead || !shooter.laserActive) continue;
-      const muzzle = shooter.getMuzzle();
-      let closest = null;
-      let closestDist = Infinity;
-      for (const target of this.tanks) {
-        if (target === shooter || target.dead) continue;
-        if (
-          !lineInRect(
-            muzzle.x,
-            muzzle.y,
-            shooter.laserEndX,
-            shooter.laserEndY,
-            target.getHitRect()
-          )
-        ) {
-          continue;
-        }
-        const d = Math.hypot(target.x - shooter.x, target.y - shooter.y);
-        if (d < closestDist) {
-          closestDist = d;
-          closest = target;
-        }
-      }
-      if (closest) {
-        this._killTank(closest);
-        shooter.beamTimer = 0; // end fire on first hit
-      }
-    }
-
     this.tanks = this.tanks.filter((t) => !t.dead);
     this.items = this.items.filter((i) => !i.dead);
 
     this._trySpawn(dt);
+
+    for (const beam of this.beams) {
+      beam.update(dt);
+    }
+    this.beams = this.beams.filter((b) => !b.dead);
 
     for (const ex of this.explosions) {
       ex.update(dt);
@@ -214,6 +225,9 @@ class Game {
 
     for (const item of this.items) {
       item.draw(ctx);
+    }
+    for (const beam of this.beams) {
+      beam.draw(ctx);
     }
     for (const tank of this.tanks) {
       tank.draw(ctx);

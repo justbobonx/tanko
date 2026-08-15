@@ -1,7 +1,6 @@
 /**
  * Tank - drive, scored AI, laser energy.
- * States: engage | forage | wander (utility scores + hysteresis).
- * Hit box = body only. Must stop while beam is active.
+ * Fire is instant (pendingShot); beam visual is a separate LaserBeam effect.
  */
 class Tank {
   constructor(x, y, color = '#4caf50') {
@@ -23,37 +22,31 @@ class Tank {
     this.energy = Math.random() * 2500;
     this.fireCost = 5000;
     this.rechargeRate = 500;
-    this.beamDuration = 0.5;
-    this.beamTimer = 0;
-    this.laserEndX = x;
-    this.laserEndY = y;
+
+    // set by tryFire; consumed by Game same frame
+    this.pendingShot = null;
 
     this.state = 'wander';
     this.aiTarget = null;
     this.aiPickTimer = 0;
   }
 
-  get laserActive() {
-    return this.beamTimer > 0;
-  }
-
   addEnergy(amount) {
     this.energy += amount;
   }
 
-  tryFire(worldW, worldH) {
-    if (this.beamTimer > 0 || this.energy < this.fireCost) return false;
+  /** Spend energy and request a shot; Game resolves hit + spawns beam. */
+  tryFire() {
+    if (this.pendingShot || this.energy < this.fireCost) return false;
     this.energy -= this.fireCost;
-    this.beamTimer = this.beamDuration;
-    this._updateBeamEnd(worldW, worldH);
-    return true;
-  }
-
-  _updateBeamEnd(worldW, worldH) {
     const muzzle = this.getMuzzle();
-    const edge = rayToCanvasEdge(muzzle.x, muzzle.y, this.angle, worldW, worldH);
-    this.laserEndX = edge.x;
-    this.laserEndY = edge.y;
+    this.pendingShot = {
+      x: muzzle.x,
+      y: muzzle.y,
+      angle: this.angle,
+      color: this.color
+    };
+    return true;
   }
 
   getHitRect() {
@@ -104,10 +97,6 @@ class Tank {
     return best ? { tank: best, dist: bestDist } : null;
   }
 
-  /**
-   * Pick a pod that isn't hopelessly contested.
-   * Prefers same-color, skips pods where others are clearly closer.
-   */
   pickPod(items, tanks) {
     const candidates = [];
     for (const item of items) {
@@ -140,7 +129,6 @@ class Tank {
     if (!candidates.length) return null;
 
     candidates.sort((a, b) => {
-      // score: lower is better for sorting pick
       const score = (c) =>
         c.dist +
         c.rivalsCloser * 90 -
@@ -149,9 +137,7 @@ class Tank {
       return score(a) - score(b);
     });
 
-    const best = candidates[0];
-    // if still heavily contested, signal that
-    return best;
+    return candidates[0];
   }
 
   selectState(tanks, items, worldW, worldH) {
@@ -175,7 +161,6 @@ class Tank {
         scores.engage = 28 + (1 - near.dist / 280) * 20;
       }
 
-      // rival beating us to a pod → shoot them instead of racing
       if (podInfo && podInfo.closestRival && podInfo.rivalsCloser > 0) {
         const rival = podInfo.closestRival;
         const rd = Math.hypot(rival.x - this.x, rival.y - this.y);
@@ -195,7 +180,6 @@ class Tank {
       let forage =
         8 + need * 28 + Math.max(0, 16 - podInfo.dist / 45);
 
-      // contested pods are much less attractive
       if (podInfo.rivalsCloser >= 1) forage *= 0.45;
       if (podInfo.rivalsCloser >= 2) forage *= 0.5;
       if (podInfo.same) forage += 6;
@@ -218,7 +202,6 @@ class Tank {
 
     this.state = best;
     if (best === 'engage') {
-      // prefer rival on our pod, then LOS, then nearest
       if (
         canFire &&
         podInfo &&
@@ -301,12 +284,6 @@ class Tank {
     if (this.dead) return;
     if (!items) items = [];
 
-    if (this.beamTimer > 0) {
-      this.beamTimer -= dt;
-      this._updateBeamEnd(worldW, worldH);
-      return;
-    }
-
     this.energy += this.rechargeRate * dt;
 
     this.aiPickTimer -= dt;
@@ -329,8 +306,7 @@ class Tank {
 
       const sight = this.findSightTarget(tanks, worldW, worldH);
       if (Math.abs(angErr) < 0.12 && sight && this.energy >= this.fireCost) {
-        this.tryFire(worldW, worldH);
-        return;
+        this.tryFire();
       }
       speedScale = 0.85;
     } else if (this.state === 'forage' && this.aiTarget && !this.aiTarget.dead) {
@@ -351,21 +327,6 @@ class Tank {
 
   draw(ctx) {
     if (this.dead) return;
-
-    if (this.laserActive) {
-      const muzzle = this.getMuzzle();
-      ctx.save();
-      ctx.strokeStyle = this.color;
-      ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
-      ctx.globalAlpha = 0.95;
-      ctx.beginPath();
-      ctx.moveTo(muzzle.x, muzzle.y);
-      ctx.lineTo(this.laserEndX, this.laserEndY);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.restore();
-    }
 
     ctx.save();
     ctx.translate(this.x, this.y);
