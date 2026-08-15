@@ -15,6 +15,8 @@ class Game {
       '#00bcd4', '#ffeb3b', '#f44336', '#8bc34a', '#3f51b5'
     ];
     this.startCount = 60;
+    // expected spawns/sec when fully below target
+    this.spawnRate = 8;
 
     for (let i = 0; i < this.startCount; i++) {
       const color = this.colors[i % this.colors.length];
@@ -22,10 +24,14 @@ class Game {
     }
   }
 
-  _spawnChance() {
+  /**
+   * 1 below ~50, tapers to 0 at ~66. Strong pressure to stay near 60.
+   */
+  _spawnIntensity() {
     const n = this.tanks.length;
-    const lo = this.startCount * 0.5;
-    const hi = this.startCount * 1.1;
+    const target = this.startCount;
+    const lo = target * 0.85; // full rate at or below ~51
+    const hi = target * 1.1;  // stop at ~66
     if (n >= hi) return 0;
     if (n <= lo) return 1;
     return (hi - n) / (hi - lo);
@@ -73,11 +79,24 @@ class Game {
   }
 
   _trySpawn(dt) {
-    const chance = this._spawnChance();
-    if (chance <= 0) return;
-    if (Math.random() >= chance * dt) return;
-    const color = this.colors[Math.floor(Math.random() * this.colors.length)];
-    this._placeTank(color, true);
+    const intensity = this._spawnIntensity();
+    if (intensity <= 0) return;
+
+    // Poisson-ish: expected spawnRate * intensity spawns per second
+    let expected = this.spawnRate * intensity * dt;
+    // when far below target, allow a burst of multiple attempts this frame
+    const deficit = this.startCount - this.tanks.length;
+    if (deficit > 10) expected *= 1.5;
+    if (deficit > 20) expected *= 1.5;
+
+    while (expected > 0) {
+      const p = Math.min(1, expected);
+      expected -= 1;
+      if (Math.random() >= p) continue;
+      if (this.tanks.length >= this.startCount * 1.1) break;
+      const color = this.colors[Math.floor(Math.random() * this.colors.length)];
+      this._placeTank(color, true);
+    }
   }
 
   _resolveBumps() {
