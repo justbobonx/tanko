@@ -1,5 +1,5 @@
 /**
- * Game - tanks, laser effects, items, bumps, explosions, respawn
+ * Game - tanks, laser effects, bullets, items, bumps, explosions, respawn
  */
 class Game {
   constructor(canvas) {
@@ -8,6 +8,7 @@ class Game {
     this.tanks = [];
     this.explosions = [];
     this.beams = [];
+    this.bullets = [];
     this.items = [];
 
     this.colors = [
@@ -185,6 +186,50 @@ class Game {
     }
   }
 
+  /** Collect any pending bullet bursts from tanks */
+  _collectBullets() {
+    for (const tank of this.tanks) {
+      if (tank.dead || !tank.pendingBullets) continue;
+      for (const b of tank.pendingBullets) {
+        this.bullets.push(b);
+      }
+      tank.pendingBullets = null;
+    }
+  }
+
+  /**
+   * Move bullets and test continuous segment vs tank rects.
+   * Fast projectiles use the previous→current line so they cannot tunnel.
+   */
+  _updateBullets(dt, w, h) {
+    for (const bullet of this.bullets) {
+      if (bullet.dead) continue;
+
+      bullet.update(dt, w, h);
+      if (bullet.dead) continue;
+
+      let closest = null;
+      let closestDist = Infinity;
+
+      for (const target of this.tanks) {
+        if (target.dead || target === bullet.owner) continue;
+        if (!lineInRect(bullet._prevX, bullet._prevY, bullet.x, bullet.y, target.getHitRect())) {
+          continue;
+        }
+        const d = Math.hypot(target.x - bullet._prevX, target.y - bullet._prevY);
+        if (d < closestDist) {
+          closestDist = d;
+          closest = target;
+        }
+      }
+
+      if (closest) {
+        this._killTank(closest);
+        bullet.dead = true;
+      }
+    }
+  }
+
   update(dt) {
     const w = this.canvas.width;
     const h = this.canvas.height;
@@ -194,6 +239,7 @@ class Game {
     }
 
     this._resolveShots(w, h);
+    this._collectBullets();
 
     this._resolveBumps();
 
@@ -202,6 +248,8 @@ class Game {
       t.x = Math.max(pad, Math.min(w - pad, t.x));
       t.y = Math.max(pad, Math.min(h - pad, t.y));
     }
+
+    this._updateBullets(dt, w, h);
 
     for (const item of this.items) {
       item.update(dt);
@@ -220,6 +268,7 @@ class Game {
 
     this.tanks = this.tanks.filter((t) => !t.dead);
     this.items = this.items.filter((i) => !i.dead);
+    this.bullets = this.bullets.filter((b) => !b.dead);
 
     this._trySpawn(dt);
 
@@ -247,6 +296,9 @@ class Game {
     }
     for (const beam of this.beams) {
       beam.draw(ctx);
+    }
+    for (const bullet of this.bullets) {
+      bullet.draw(ctx);
     }
     for (const tank of this.tanks) {
       tank.draw(ctx);
